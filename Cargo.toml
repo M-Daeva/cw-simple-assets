@@ -1,0 +1,18 @@
+[package]
+name = "cw-simple-assets"
+version = "1.0.0"
+edition = "2021"
+repository = "https://github.com/M-Daeva/cw-simple-assets"
+authors = ["M. Daeva <embedmad@gmail.com>"]
+description = "Helpers to work with native and cw20 tokens in CosmWasm contracts"
+license = "Apache-2.0"
+documentation = "https://docs.rs/cw-simple-assets"
+readme = "README.md"
+keywords = ["cosmwasm", "blockchain", "cosmos"]
+categories = ["cryptography::cryptocurrencies"]
+
+[dependencies]
+cosmwasm-schema = "2.2.0"
+cosmwasm-std = "2.2.0"
+cw20 = "2.0.0"
+thiserror = "2.0.12"
