@@ -1,6 +1,6 @@
 [package]
 name = "cw-simple-assets"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 repository = "https://github.com/M-Daeva/cw-simple-assets"
 authors = ["M. Daeva <embedmad@gmail.com>"]

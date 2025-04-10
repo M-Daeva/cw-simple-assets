@@ -156,6 +156,12 @@ pub enum FundsType {
     },
 }
 
+impl FundsType {
+    pub fn single(sender: Option<String>, amount: Option<Uint128>) -> Self {
+        Self::Single { sender, amount }
+    }
+}
+
 pub fn add_funds_to_exec_msg(
     exec_msg: &WasmMsg,
     funds_list: &[(Uint128, Token)],
