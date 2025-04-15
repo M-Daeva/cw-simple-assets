@@ -1,6 +1,6 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{
-    coin, coins, wasm_execute, Addr, Api, BankMsg, Coin, CosmosMsg, Deps, MessageInfo, StdError,
+    coin, coins, wasm_execute, Addr, Api, BankMsg, Coin, CosmosMsg, MessageInfo, StdError,
     StdResult, Uint128, WasmMsg,
 };
 
@@ -133,22 +133,14 @@ impl<T: From<Token> + Clone> Currency<T> {
 }
 
 #[cw_serde]
-pub struct Funds<T: From<Token>> {
-    pub amount: Uint128,
-    pub currency: Currency<T>,
-}
-
-impl<T: From<Token> + Clone> Funds<T> {
-    pub fn new(amount: impl Into<Uint128> + Clone, currency: &Currency<T>) -> Self {
-        Self {
-            amount: amount.into(),
-            currency: currency.to_owned(),
-        }
-    }
+pub struct InfoResp {
+    pub sender: Addr,
+    pub asset_amount: Uint128,
+    pub asset_token: Token,
 }
 
 #[cw_serde]
-pub enum FundsType {
+pub enum Funds {
     Empty,
     Single {
         sender: Option<String>,
@@ -156,9 +148,50 @@ pub enum FundsType {
     },
 }
 
-impl FundsType {
+impl Funds {
+    pub fn empty() -> Self {
+        Self::Empty
+    }
+
     pub fn single(sender: Option<String>, amount: Option<Uint128>) -> Self {
         Self::Single { sender, amount }
+    }
+
+    /// Supports both native and cw20 tokens                                        \
+    /// * Funds::empty() to check if info.funds is empty                            \
+    /// * Funds::single(None, None) to check native token                           \
+    /// * Funds::single(Some(msg.sender), Some(msg.amount)) to check cw20 token
+    pub fn check(&self, api: &dyn Api, info: &MessageInfo) -> StdResult<InfoResp> {
+        match self {
+            Funds::Empty => {
+                nonpayable(info)?;
+
+                Ok(InfoResp {
+                    sender: info.sender.to_owned(),
+                    asset_amount: Uint128::zero(),
+                    asset_token: Token::new_native(&String::default()),
+                })
+            }
+            Funds::Single { sender, amount } => {
+                if sender.as_ref().is_none() || amount.is_none() {
+                    let Coin { denom, amount } = one_coin(info)?;
+
+                    Ok(InfoResp {
+                        sender: info.sender.to_owned(),
+                        asset_amount: amount,
+                        asset_token: Token::new_native(&denom),
+                    })
+                } else {
+                    Ok(InfoResp {
+                        sender: api.addr_validate(
+                            sender.as_ref().ok_or(AssetError::WrongFundsCombination)?,
+                        )?,
+                        asset_amount: amount.ok_or(AssetError::WrongFundsCombination)?,
+                        asset_token: Token::new_cw20(&info.sender),
+                    })
+                }
+            }
+        }
     }
 }
 
@@ -225,47 +258,11 @@ pub fn get_transfer_msg(recipient: &Addr, amount: Uint128, token: &Token) -> Std
             address,
             &cw20::Cw20ExecuteMsg::Transfer {
                 recipient: recipient.to_string(),
-                amount: amount.to_owned(),
+                amount,
             },
             vec![],
         )?),
     })
-}
-
-/// Returns (sender_address, asset_amount, asset_info) supporting both native and cw20 tokens \
-/// Use FundsType::Empty to check if info.funds is empty \
-/// Use FundsType::Single { sender: None, amount: None } to check native token \
-/// Use FundsType::Single { sender: Some(msg.sender), amount: Some(msg.amount) } to check cw20 token
-pub fn check_funds(
-    deps: Deps,
-    info: &MessageInfo,
-    funds_type: FundsType,
-) -> StdResult<(Addr, Uint128, Token)> {
-    match funds_type {
-        FundsType::Empty => {
-            nonpayable(info)?;
-
-            Ok((
-                info.sender.clone(),
-                Uint128::default(),
-                Token::new_native(&String::default()),
-            ))
-        }
-        FundsType::Single { sender, amount } => {
-            if sender.is_none() || amount.is_none() {
-                let Coin { denom, amount } = one_coin(info)?;
-
-                Ok((info.sender.clone(), amount, Token::new_native(&denom)))
-            } else {
-                Ok((
-                    deps.api
-                        .addr_validate(&sender.ok_or(AssetError::WrongFundsCombination)?)?,
-                    amount.ok_or(AssetError::WrongFundsCombination)?,
-                    Token::new_cw20(&info.sender),
-                ))
-            }
-        }
-    }
 }
 
 /// If exactly one coin was sent, returns it regardless of denom.
@@ -317,5 +314,33 @@ pub enum AssetError {
 impl From<AssetError> for StdError {
     fn from(asset_error: AssetError) -> Self {
         Self::generic_err(asset_error.to_string())
+    }
+}
+
+#[cfg(test)]
+pub mod test {
+    use super::*;
+    use cosmwasm_std::testing::{message_info, mock_dependencies};
+
+    #[test]
+    fn test_single_coin() -> StdResult<()> {
+        const ADMIN: &str = "cosmwasm105yqjjdgl00nzwyj9aua98zgetdn4qyhukjf5t";
+        const AMOUNT: u128 = 100;
+        const DENOM: &str = "cosm";
+
+        let deps = mock_dependencies();
+        let info = message_info(&Addr::unchecked(ADMIN), &coins(AMOUNT, DENOM));
+        let info_resp = Funds::single(None, None).check(&deps.api, &info)?;
+
+        assert_eq!(
+            info_resp,
+            InfoResp {
+                sender: Addr::unchecked(ADMIN),
+                asset_amount: Uint128::new(AMOUNT),
+                asset_token: Token::new_native(DENOM),
+            }
+        );
+
+        Ok(())
     }
 }
